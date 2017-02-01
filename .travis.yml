@@ -17,3 +17,24 @@ script:
   - 'pyflakes src/onelogin/saml2 demo-django demo-flask tests/src/OneLogin/saml2_tests'
 
 after_success: 'coveralls'
+
+before_deploy:
+  # Create wheel
+  - pip wheel -w wheel .
+  - mkdir wheel/dist/ && mv wheel/python_saml* wheel/dist/
+
+# Upload master wheels to S3 for pypicloud
+deploy:
+  provider: s3
+  access_key_id:
+    secure: "qAZ9Bb1bQws64yeA2CHMzyl6qNo+EFGEkEi85L2beC9R2lADKHnrkoerpbDuaZoYhNR2lyxRnmGRDMxcqYMXvYrNEz1i96TjP3SiaXqVwnNtF/LVuwnjWM54dJA/Bd/jZvBolJAnLmZdfbFqwyOlIq7ewdZADnk0WjxEpWM+wzUnqOJi2us4ZxZKZ4SJkyEcmX1phG34pl8cOLshfWukE11ESYPOEQZBoRMQsrkyEhfiCsz8KjsG05ufR9dk/jyZrllPB/UPQnORciHHAspgEc6068n7jdgTTlntcS7/jsHC27v3R+UQynXgayN1A8KUw1BtaZQxbQgA+dP2bWqttQOQeZOfuDc/fxFk7FiqMjJPgNAvr16GrK1zR5cIo+ErWeJ2k7WFy66QIcJxHI2qywbGuFNDhxFU0LI+/6rgwHC20t2gmLjMWvz79q+cb7MyosVf5Zi5AknVUrayb1z83WV5OSE7LOyWgdTcWFAHTfqe+08H+La2YcNWKyCPz94R7W1zLbhqEA2m2fJCqQieNqzWOmVYaHZDTlZTGw1dOuadCKja5NBHivuTLoDjeOQQg6/B7oEHwLDmWff10ij52B+klgDo5XLT/BFwnkV/sH1V9AhB6fZERR0v2VMqhBWwd9BvY+8K9izLlZkSKHzjlUBru7ce3cmiRRkNwZH4erA="
+  secret_access_key:
+    secure: "kjtJraeeJvdcCSjsSykPp77lPxYcs9gINqyuaPFZaj6E4Tr+9UTSiGRwiNl9dwyS/TZR8qXchQozXpQxJVGMcrJpGB7eJiwM75paQ+3rUWYqTiaonvt88uhLn6I6XyBCCDcHeh5JQxCt8CmXP5u4bYgQKXRbh55soBYqRfQRAIl6Kq2P/n6j3Ge54flB1iGsq48LjsicOBfz+vXthtJRB06iGFV7HHIfkSLgE7UC1BiOiWsBq5lTL8NKq6/sSx39i8CIuDN5V7I4IY9EwjzjPK/D4olQ/sJ/3106Xu/q5R05YF9qgG243W+o5iOjio2o1bjPvM7tjlredPVPiN70d9Z1h5F+Pq+iv3yebRG7hDKEBjnOnERbuL6UtyrkCXqW7ySA4/XgP5XzniHOmZA9NopRM93ZD3/gkUVBGEKxjPIa/PP4HvRmqcunfhoAPWTwX2XztjWtu7aWiwUdVrybUG32MAzTzJbC1LvlYEUHu+VkEjUEYqzi8SWRDQv+UzwfhJfdYSwYoZYHbQUwc8EJP2vCQ9ac9+gDv+ibKsFrfAyd7sHG+mugpfb+qGC+SyaKPxgy8HG9OG4tVED78kGQrQP60/HJLa+Fie9SbzJER4wXpS+Qmm39QYL9RToqk01n1/s2yXvLaPngz7pAz30SqNycK/CM+KkGPnoS1ypgkGA="
+  bucket: software-buildingrobotics
+  local-dir: wheel/dist
+  upload-dir: python_saml
+  region: us-west-1
+  skip_cleanup: true
+  on:
+    repo: BuildingRobotics/python-saml
+    branch: master
