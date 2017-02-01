@@ -129,7 +129,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
 
         xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
         response_8 = OneLogin_Saml2_Response(settings, xml_5)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The SPNameQualifier value mistmatch the SP entityID value'):
+        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
             response_8.get_nameid()
 
         xml_6 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'empty_nameid.xml.base64'))
@@ -204,7 +204,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
 
         xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
         response_8 = OneLogin_Saml2_Response(settings, xml_5)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The SPNameQualifier value mistmatch the SP entityID value.'):
+        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
             response_8.get_nameid_data()
             self.assertTrue(False)
 
@@ -418,7 +418,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         xml = self.file_contents(join(self.data_path, 'responses', 'wrapped_response_2.xml.base64'))
         response = OneLogin_Saml2_Response(settings, xml)
         self.assertFalse(response.is_valid(self.get_request_data()))
-        self.assertEqual("Invalid Signature Element {urn:oasis:names:tc:SAML:2.0:metadata}EntityDescriptor SAML Response rejected", response.get_error())
+        self.assertEqual("Invalid Signature Element {urn:oasis:names:tc:SAML:2.0:metadata}EntityDescriptor SAML Response rejected; response {urn:oasis:names:tc:SAML:2.0:protocol}Response, assertion {urn:oasis:names:tc:SAML:2.0:assertion}Assertion", response.get_error())
         nameid = response.get_nameid()
         self.assertEqual('root@example.com', nameid)
 
@@ -520,7 +520,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         xml = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_saml2.xml.base64'))
         response = OneLogin_Saml2_Response(settings, xml)
         self.assertFalse(response.is_valid(self.get_request_data()))
-        self.assertEqual('Unsupported SAML version', response.get_error())
+        self.assertEqual('Unsupported SAML version None', response.get_error())
 
     def testValidateID(self):
         """
@@ -693,7 +693,7 @@ bP0z0zvDEQnnt/VUWFEBLSJq4Z4Nre8LFmS2
         xml = self.file_contents(join(self.data_path, 'responses', 'invalids', 'duplicated_attributes.xml.base64'))
         response = OneLogin_Saml2_Response(settings, xml)
         self.assertTrue(response.is_valid(self.get_request_data()))
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'Found an Attribute element with duplicated Name'):
+        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'Found an Attribute element uid with duplicated Name'):
             response.get_attributes()
 
     def testIsInValidDestination(self):
@@ -786,11 +786,11 @@ bP0z0zvDEQnnt/VUWFEBLSJq4Z4Nre8LFmS2
         settings.set_strict(True)
         response_3 = OneLogin_Saml2_Response(settings, message)
         self.assertFalse(response_3.is_valid(request_data))
-        self.assertEqual('Invalid issuer in the Assertion/Response', response_3.get_error())
+        self.assertEqual('Invalid issuer http://invalid.issuer.example.com/ in the Assertion/Response; valid is http://idp.example.com/', response_3.get_error())
 
         response_4 = OneLogin_Saml2_Response(settings, message_2)
         self.assertFalse(response_4.is_valid(request_data))
-        self.assertEqual('Invalid issuer in the Assertion/Response', response_4.get_error())
+        self.assertEqual('Invalid issuer http://invalid.isser.example.com/ in the Assertion/Response; valid is http://idp.example.com/', response_4.get_error())
 
     def testIsInValidSessionIndex(self):
         """
