@@ -29,7 +29,7 @@ class OneLogin_Saml2_Logout_Request(object):
 
     """
 
-    def __init__(self, settings, request=None, name_id=None, session_index=None, nq=None):
+    def __init__(self, settings, request=None, name_id=None, session_index=None, nq=None, name_id_format=None):
         """
         Constructs the Logout Request object.
 
@@ -46,6 +46,9 @@ class OneLogin_Saml2_Logout_Request(object):
         :type session_index: string
 
         :param nq: IDP Name Qualifier
+        :type: string
+
+        :param name_id_format: The NameID Format that will be set in the LogoutRequest.
         :type: string
         """
         self.__settings = settings
@@ -64,21 +67,35 @@ class OneLogin_Saml2_Logout_Request(object):
 
             cert = None
             if 'nameIdEncrypted' in security and security['nameIdEncrypted']:
-                cert = idp_data['x509cert']
+                exists_multix509enc = 'x509certMulti' in idp_data and \
+                    'encryption' in idp_data['x509certMulti'] and \
+                    idp_data['x509certMulti']['encryption']
+                if exists_multix509enc:
+                    cert = idp_data['x509certMulti']['encryption'][0]
+                else:
+                    cert = idp_data['x509cert']
 
             if name_id is not None:
-                nameIdFormat = sp_data['NameIDFormat']
-                spNameQualifier = None
+                if not name_id_format and sp_data['NameIDFormat'] != OneLogin_Saml2_Constants.NAMEID_UNSPECIFIED:
+                    name_id_format = sp_data['NameIDFormat']
             else:
+                name_id_format = OneLogin_Saml2_Constants.NAMEID_ENTITY
+
+            spNameQualifier = None
+            if name_id_format == OneLogin_Saml2_Constants.NAMEID_ENTITY:
                 name_id = idp_data['entityId']
-                nameIdFormat = OneLogin_Saml2_Constants.NAMEID_ENTITY
+                nq = None
+            elif nq is not None:
+                # We only gonna include SPNameQualifier if NameQualifier is provided
                 spNameQualifier = sp_data['entityId']
 
             name_id_obj = OneLogin_Saml2_Utils.generate_name_id(
                 name_id,
                 spNameQualifier,
-                nameIdFormat,
-                cert
+                name_id_format,
+                cert,
+                False,
+                nq
             )
 
             if session_index:
@@ -201,7 +218,7 @@ class OneLogin_Saml2_Logout_Request(object):
             )
 
         name_id_data = {
-            'Value': name_id.text
+            'Value': OneLogin_Saml2_Utils.element_text(name_id)
         }
         for attr in ['Format', 'SPNameQualifier', 'NameQualifier']:
             if attr in name_id.attrib.keys():
@@ -224,6 +241,23 @@ class OneLogin_Saml2_Logout_Request(object):
         return name_id['Value']
 
     @staticmethod
+    def get_nameid_format(request, key=None):
+        """
+        Gets the NameID Format of the Logout Request Message
+        :param request: Logout Request Message
+        :type request: string|DOMDocument
+        :param key: The SP key
+        :type key: string
+        :return: Name ID Value
+        :rtype: string
+        """
+        name_id_format = None
+        name_id_data = OneLogin_Saml2_Logout_Request.get_nameid_data(request, key)
+        if name_id_data and 'Format' in name_id_data.keys():
+            name_id_format = name_id_data['Format']
+        return name_id_format
+
+    @staticmethod
     def get_issuer(request):
         """
         Gets the Issuer of the Logout Request Message
@@ -242,7 +276,7 @@ class OneLogin_Saml2_Logout_Request(object):
         issuer = None
         issuer_nodes = OneLogin_Saml2_Utils.query(elem, '/samlp:LogoutRequest/saml:Issuer')
         if len(issuer_nodes) == 1:
-            issuer = issuer_nodes[0].text
+            issuer = OneLogin_Saml2_Utils.element_text(issuer_nodes[0])
         return issuer
 
     @staticmethod
@@ -264,7 +298,7 @@ class OneLogin_Saml2_Logout_Request(object):
         session_indexes = []
         session_index_nodes = OneLogin_Saml2_Utils.query(elem, '/samlp:LogoutRequest/samlp:SessionIndex')
         for session_index_node in session_index_nodes:
-            session_indexes.append(session_index_node.text)
+            session_indexes.append(OneLogin_Saml2_Utils.element_text(session_index_node))
         return session_indexes
 
     def is_valid(self, request_data, raise_exceptions=False):
@@ -355,19 +389,32 @@ class OneLogin_Saml2_Logout_Request(object):
                     signed_query = '%s&RelayState=%s' % (signed_query, OneLogin_Saml2_Utils.get_encoded_parameter(get_data, 'RelayState', lowercase_urlencoding=lowercase_urlencoding))
                 signed_query = '%s&SigAlg=%s' % (signed_query, OneLogin_Saml2_Utils.get_encoded_parameter(get_data, 'SigAlg', OneLogin_Saml2_Constants.RSA_SHA1, lowercase_urlencoding=lowercase_urlencoding))
 
-                if 'x509cert' not in idp_data or not idp_data['x509cert']:
+                exists_x509cert = 'x509cert' in idp_data and idp_data['x509cert']
+                exists_multix509sign = 'x509certMulti' in idp_data and \
+                    'signing' in idp_data['x509certMulti'] and \
+                    idp_data['x509certMulti']['signing']
+
+                if not (exists_x509cert or exists_multix509sign):
                     raise OneLogin_Saml2_Error(
                         'In order to validate the sign on the Logout Request, the x509cert of the IdP is required',
                         OneLogin_Saml2_Error.CERT_NOT_FOUND
                     )
-                cert = idp_data['x509cert']
-
-                if not OneLogin_Saml2_Utils.validate_binary_sign(signed_query, b64decode(get_data['Signature']), cert, sign_alg):
+                if exists_multix509sign:
+                    for cert in idp_data['x509certMulti']['signing']:
+                        if OneLogin_Saml2_Utils.validate_binary_sign(signed_query, b64decode(get_data['Signature']), cert, sign_alg):
+                            return True
                     raise OneLogin_Saml2_ValidationError(
                         'Signature validation failed. Logout Request rejected',
                         OneLogin_Saml2_ValidationError.INVALID_SIGNATURE
                     )
+                else:
+                    cert = idp_data['x509cert']
 
+                    if not OneLogin_Saml2_Utils.validate_binary_sign(signed_query, b64decode(get_data['Signature']), cert, sign_alg):
+                        raise OneLogin_Saml2_ValidationError(
+                            'Signature validation failed. Logout Request rejected',
+                            OneLogin_Saml2_ValidationError.INVALID_SIGNATURE
+                        )
             return True
         except Exception as err:
             # pylint: disable=R0801sign_alg

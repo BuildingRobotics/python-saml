@@ -22,15 +22,13 @@ class OneLogin_Saml2_Logout_Request_Test(unittest.TestCase):
     data_path = join(dirname(dirname(dirname(dirname(__file__)))), 'data')
     settings_path = join(dirname(dirname(dirname(dirname(__file__)))), 'settings')
 
-    def loadSettingsJSON(self):
-        filename = join(self.settings_path, 'settings1.json')
+    def loadSettingsJSON(self, name='settings1.json'):
+        filename = join(self.settings_path, name)
         if exists(filename):
             stream = open(filename, 'r')
             settings = json.load(stream)
             stream.close()
             return settings
-        else:
-            raise Exception('Settings json file does not exist')
 
     def file_contents(self, filename):
         f = open(filename, 'r')
@@ -73,6 +71,64 @@ class OneLogin_Saml2_Logout_Request_Test(unittest.TestCase):
         payload = exploded['SAMLRequest'][0]
         inflated = OneLogin_Saml2_Utils.decode_base64_and_inflate(payload)
         self.assertRegexpMatches(inflated, '^<samlp:LogoutRequest')
+
+    def testConstructorWithNameIdFormatOnSettings(self):
+        """
+        Tests the OneLogin_Saml2_LogoutRequest Constructor.
+        Case: Defines NameIDFormat from settings
+        """
+        settings_info = self.loadSettingsJSON()
+        name_id = 'ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c'
+        name_id_format = 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient'
+        settings_info['sp']['NameIDFormat'] = name_id_format
+        settings = OneLogin_Saml2_Settings(settings_info)
+        logout_request = OneLogin_Saml2_Logout_Request(settings, name_id=name_id)
+        logout_request_xml = OneLogin_Saml2_Utils.decode_base64_and_inflate(logout_request.get_request())
+        name_id_data = OneLogin_Saml2_Logout_Request.get_nameid_data(logout_request_xml)
+        expected_name_id_data = {
+            'Value': name_id,
+            'Format': name_id_format
+        }
+        self.assertEqual(expected_name_id_data, name_id_data)
+
+    def testConstructorWithoutNameIdFormat(self):
+        """
+        Tests the OneLogin_Saml2_LogoutRequest Constructor.
+        Case: Checks that NameIDFormat is not added
+        """
+        settings_info = self.loadSettingsJSON()
+        name_id = 'ONELOGIN_1e442c129e1f822c8096086a1103c5ee2c7cae1c'
+        name_id_format = 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified'
+        settings_info['sp']['NameIDFormat'] = name_id_format
+        settings = OneLogin_Saml2_Settings(settings_info)
+        logout_request = OneLogin_Saml2_Logout_Request(settings, name_id=name_id)
+        logout_request_xml = OneLogin_Saml2_Utils.decode_base64_and_inflate(logout_request.get_request())
+        name_id_data = OneLogin_Saml2_Logout_Request.get_nameid_data(logout_request_xml)
+        expected_name_id_data = {
+            'Value': name_id
+        }
+        self.assertEqual(expected_name_id_data, name_id_data)
+
+    def testConstructorEncryptIdUsingX509certMulti(self):
+        """
+        Tests the OneLogin_Saml2_LogoutRequest Constructor.
+        Case: Able to generate encryptedID with MultiCert
+        """
+        settings_info = self.loadSettingsJSON('settings8.json')
+        settings_info['security']['nameIdEncrypted'] = True
+        settings = OneLogin_Saml2_Settings(settings_info)
+
+        logout_request = OneLogin_Saml2_Logout_Request(settings)
+
+        parameters = {'SAMLRequest': logout_request.get_request()}
+        logout_url = OneLogin_Saml2_Utils.redirect('http://idp.example.com/SingleLogoutService.php', parameters, True)
+        self.assertRegexpMatches(logout_url, '^http://idp\.example\.com\/SingleLogoutService\.php\?SAMLRequest=')
+        url_parts = urlparse(logout_url)
+        exploded = parse_qs(url_parts.query)
+        payload = exploded['SAMLRequest'][0]
+        inflated = OneLogin_Saml2_Utils.decode_base64_and_inflate(payload)
+        self.assertRegexpMatches(inflated, '^<samlp:LogoutRequest')
+        self.assertRegexpMatches(inflated, '<saml:EncryptedID>')
 
     def testGetIDFromSAMLLogoutRequest(self):
         """
@@ -134,9 +190,41 @@ class OneLogin_Saml2_Logout_Request_Test(unittest.TestCase):
         with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the Logout Request'):
             OneLogin_Saml2_Logout_Request.get_nameid_data(dom_2.toxml(), key)
 
+        idp_data = settings.get_idp_data()
+        sp_data = settings.get_sp_data()
+        expected_name_id_data = {
+            'Format': 'urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress',
+            'NameQualifier': idp_data['entityId'],
+            'SPNameQualifier': sp_data['entityId'],
+            'Value': 'ONELOGIN_9c86c4542ab9d6fce07f2f7fd335287b9b3cdf69'
+        }
+
         inv_request = self.file_contents(join(self.data_path, 'logout_requests', 'invalids', 'no_nameId.xml'))
         with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the Logout Request'):
             OneLogin_Saml2_Logout_Request.get_nameid_data(inv_request)
+
+        logout_request = OneLogin_Saml2_Logout_Request(settings, None, expected_name_id_data['Value'], None, idp_data['entityId'], expected_name_id_data['Format'])
+        dom = parseString(logout_request.get_xml())
+        name_id_data_3 = OneLogin_Saml2_Logout_Request.get_nameid_data(dom)
+        self.assertEqual(expected_name_id_data, name_id_data_3)
+
+        expected_name_id_data = {
+            'Format': 'urn:oasis:names:tc:SAML:2.0:nameid-format:emailAddress',
+            'Value': 'ONELOGIN_9c86c4542ab9d6fce07f2f7fd335287b9b3cdf69'
+        }
+        logout_request = OneLogin_Saml2_Logout_Request(settings, None, expected_name_id_data['Value'], None, None, expected_name_id_data['Format'])
+        dom = parseString(logout_request.get_xml())
+        name_id_data_4 = OneLogin_Saml2_Logout_Request.get_nameid_data(dom)
+        self.assertEqual(expected_name_id_data, name_id_data_4)
+
+        expected_name_id_data = {
+            'Format': 'urn:oasis:names:tc:SAML:2.0:nameid-format:entity',
+            'Value': 'http://idp.example.com/'
+        }
+        logout_request = OneLogin_Saml2_Logout_Request(settings)
+        dom = parseString(logout_request.get_xml())
+        name_id_data_5 = OneLogin_Saml2_Logout_Request.get_nameid_data(dom)
+        self.assertEqual(expected_name_id_data, name_id_data_5)
 
     def testGetNameId(self):
         """
@@ -414,6 +502,26 @@ class OneLogin_Saml2_Logout_Request_Test(unittest.TestCase):
         self.assertFalse(logout_request7.is_valid(request_data))
         self.assertEqual('In order to validate the sign on the Logout Request, the x509cert of the IdP is required', logout_request7.get_error())
 
+    def testIsValidSignUsingX509certMulti(self):
+        """
+        Tests the is_valid method of the OneLogin_Saml2_LogoutRequest
+        """
+        request_data = {
+            'http_host': 'example.com',
+            'script_name': 'index.html',
+            'get_data': {
+                'SAMLRequest': 'fZJNa+MwEIb/itHdiTz6sC0SQyEsBPoB27KHXoIsj7cGW3IlGfLzV7G7kN1DL2KYmeedmRcdgp7GWT26326JP/FzwRCz6zTaoNbKkSzeKqfDEJTVEwYVjXp9eHpUsKNq9i4640Zyh3xP6BDQx8FZkp1PR3KpqexAl72QmpUCS8SW01IiZz2TVVGD4X1VQYlAsl/oQyKPJAklPIQFzzZEbWNK0YLnlOVA3wqpQCoB7yQ7pWsGq+NKfcQ4q/0+xKXvd8ZNe7Td7AYbw10UxrCbP2aSPbv4Yl/8Qx/R3+SB5bTOoXiDQvFNvjnc7lXrIr75kh+6eYdXPc0jrkMO+/umjXhOtpxP2Q/nJx2/9+uWGbq8X1tV9NqGAW0kzaVvoe1AAJeCSWqYaUVRM2SilKKuqDTpFSlszdcK29RthVm9YriZebYdXpsLdhVAB7VJzif3haYMqqTVcl0JMBR4y+s2zak3sf/4v8l/vlHzBw==',
+                'RelayState': '_1037fbc88ec82ce8e770b2bed1119747bb812a07e6',
+                'SigAlg': 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
+                'Signature': 'Ouxo9BV6zmq4yrgamT9EbSKy/UmvSxGS8z26lIMgKOEP4LFR/N23RftdANmo4HafrzSfA0YTXwhKDqbOByS0j+Ql8OdQOes7vGioSjo5qq/Bi+5i6jXwQfphnfcHAQiJL4gYVIifkhhHRWpvYeiysF1Y9J02me0izwazFmoRXr4='
+            }
+        }
+        settings_info = self.loadSettingsJSON('settings8.json')
+        settings_info['strict'] = False
+        settings = OneLogin_Saml2_Settings(settings_info)
+        logout_request = OneLogin_Saml2_Logout_Request(settings, request_data['get_data']['SAMLRequest'])
+        self.assertTrue(logout_request.is_valid(request_data))
+
     def testGetXML(self):
         """
         Tests that we can get the logout request XML directly without
@@ -427,7 +535,7 @@ class OneLogin_Saml2_Logout_Request_Test(unittest.TestCase):
         expectedFragment = (
             'Destination="http://idp.example.com/SingleLogoutService.php">\n'
             '        <saml:Issuer>http://stuff.com/endpoints/metadata.php</saml:Issuer>\n'
-            '        <saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:entity" SPNameQualifier="http://stuff.com/endpoints/metadata.php">http://idp.example.com/</saml:NameID>\n'
+            '        <saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:entity">http://idp.example.com/</saml:NameID>\n'
             '        \n    </samlp:LogoutRequest>'
         )
         self.assertIn(expectedFragment, logout_request_generated.get_xml())

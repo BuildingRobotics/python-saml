@@ -10,6 +10,7 @@ Auxiliary class of OneLogin's Python Toolkit.
 """
 
 import base64
+from copy import deepcopy
 from datetime import datetime
 import calendar
 from hashlib import sha1, sha256, sha384, sha512
@@ -153,7 +154,12 @@ class OneLogin_Saml2_Utils(object):
 
             return 'invalid_xml'
 
-        return parseString(etree.tostring(dom, encoding='unicode').encode('utf-8'))
+        return parseString(tostring(dom, encoding='unicode').encode('utf-8'))
+
+    @staticmethod
+    def element_text(node):
+        etree.strip_tags(node, etree.Comment)
+        return node.text
 
     @staticmethod
     def format_cert(cert, heads=True):
@@ -551,9 +557,9 @@ class OneLogin_Saml2_Utils(object):
     @staticmethod
     def calculate_x509_fingerprint(x509_cert, alg='sha1'):
         """
-        Calculates the fingerprint of a x509cert.
+        Calculates the fingerprint of a formatted x509cert.
 
-        :param x509_cert: x509 cert
+        :param x509_cert: x509 cert formatted
         :type: string
 
         :param alg: The algorithm to build the fingerprint
@@ -566,22 +572,26 @@ class OneLogin_Saml2_Utils(object):
 
         lines = x509_cert.split('\n')
         data = ''
+        inData = False
 
         for line in lines:
             # Remove '\r' from end of line if present.
             line = line.rstrip()
-            if line == '-----BEGIN CERTIFICATE-----':
-                # Delete junk from before the certificate.
-                data = ''
-            elif line == '-----END CERTIFICATE-----':
-                # Ignore data after the certificate.
-                break
-            elif line == '-----BEGIN PUBLIC KEY-----' or line == '-----BEGIN RSA PRIVATE KEY-----':
-                # This isn't an X509 certificate.
-                return None
+            if not inData:
+                if line == '-----BEGIN CERTIFICATE-----':
+                    inData = True
+                elif line == '-----BEGIN PUBLIC KEY-----' or line == '-----BEGIN RSA PRIVATE KEY-----':
+                    # This isn't an X509 certificate.
+                    return None
             else:
+                if line == '-----END CERTIFICATE-----':
+                    break
+
                 # Append the current line to the certificate data.
                 data += line
+
+        if not data:
+            return None
 
         decoded_data = base64.b64decode(data)
 
@@ -611,7 +621,7 @@ class OneLogin_Saml2_Utils(object):
         return formated_fingerprint.lower()
 
     @staticmethod
-    def generate_name_id(value, sp_nq, sp_format, cert=None, debug=False, nq=None):
+    def generate_name_id(value, sp_nq, sp_format=None, cert=None, debug=False, nq=None):
         """
         Generates a nameID.
 
@@ -645,7 +655,8 @@ class OneLogin_Saml2_Utils(object):
             name_id.setAttribute('SPNameQualifier', sp_nq)
         if nq is not None:
             name_id.setAttribute('NameQualifier', nq)
-        name_id.setAttribute('Format', sp_format)
+        if sp_format is not None:
+            name_id.setAttribute('Format', sp_format)
         name_id.appendChild(doc.createTextNode(value))
         name_id_container.appendChild(name_id)
 
@@ -680,7 +691,7 @@ class OneLogin_Saml2_Utils(object):
 
             edata = enc_ctx.encryptXml(enc_data, elem[0])
 
-            newdoc = parseString(etree.tostring(edata, encoding='unicode').encode('utf-8'))
+            newdoc = parseString(tostring(edata, encoding='unicode').encode('utf-8'))
 
             if newdoc.hasChildNodes():
                 child = newdoc.firstChild
@@ -741,12 +752,12 @@ class OneLogin_Saml2_Utils(object):
             if len(subcode_entry) == 1:
                 status['msg'] = subcode_entry[0].values()[0]
         elif len(message_entry) == 1:
-            status['msg'] = message_entry[0].text
+            status['msg'] = OneLogin_Saml2_Utils.element_text(message_entry[0])
 
         return status
 
     @staticmethod
-    def decrypt_element(encrypted_data, key, debug=False):
+    def decrypt_element(encrypted_data, key, debug=False, inplace=False):
         """
         Decrypts an encrypted element.
 
@@ -759,6 +770,9 @@ class OneLogin_Saml2_Utils(object):
         :param debug: Activate the xmlsec debug
         :type: bool
 
+        :param inplace: update passed data with decrypted result
+        :type: bool
+
         :returns: The decrypted element.
         :rtype: lxml.etree.Element
         """
@@ -766,6 +780,8 @@ class OneLogin_Saml2_Utils(object):
             encrypted_data = fromstring(str(encrypted_data.toxml()))
         elif isinstance(encrypted_data, basestring):
             encrypted_data = fromstring(str(encrypted_data))
+        elif not inplace and isinstance(encrypted_data, etree._Element):
+            encrypted_data = deepcopy(encrypted_data)
 
         error_callback_method = None
         if debug:
@@ -797,7 +813,7 @@ class OneLogin_Saml2_Utils(object):
         return f_temp
 
     @staticmethod
-    def add_sign(xml, key, cert, debug=False, sign_algorithm=OneLogin_Saml2_Constants.RSA_SHA1):
+    def add_sign(xml, key, cert, debug=False, sign_algorithm=OneLogin_Saml2_Constants.RSA_SHA1, digest_algorithm=OneLogin_Saml2_Constants.SHA1):
         """
         Adds signature key and senders certificate to an element (Message or
         Assertion).
@@ -816,6 +832,12 @@ class OneLogin_Saml2_Utils(object):
 
         :param sign_algorithm: Signature algorithm method
         :type sign_algorithm: string
+
+        :param digest_algorithm: Digest algorithm method
+        :type digest_algorithm: string
+
+        :returns: Signed XML
+        :rtype: string
         """
         if xml is None or xml == '':
             raise Exception('Empty string supplied as input')
@@ -864,9 +886,21 @@ class OneLogin_Saml2_Utils(object):
             issuer = issuer[0]
             issuer.addnext(signature)
         else:
-            elem[0].insert(0, signature)
+            entity_descriptor = OneLogin_Saml2_Utils.query(elem, '//md:EntityDescriptor')
+            if len(entity_descriptor) > 0:
+                elem.insert(0, signature)
+            else:
+                elem[0].insert(0, signature)
 
-        ref = signature.addReference(xmlsec.TransformSha1)
+        digest_algorithm_transform_map = {
+            OneLogin_Saml2_Constants.SHA1: xmlsec.TransformSha1,
+            OneLogin_Saml2_Constants.SHA256: xmlsec.TransformSha256,
+            OneLogin_Saml2_Constants.SHA384: xmlsec.TransformSha384,
+            OneLogin_Saml2_Constants.SHA512: xmlsec.TransformSha512
+        }
+        digest_algorithm_transform = digest_algorithm_transform_map.get(digest_algorithm, xmlsec.TransformSha1)
+
+        ref = signature.addReference(digest_algorithm_transform)
         ref.addTransform(xmlsec.TransformEnveloped)
         ref.addTransform(xmlsec.TransformExclC14N)
 
@@ -883,7 +917,7 @@ class OneLogin_Saml2_Utils(object):
         dsig_ctx.signKey = sign_key
         dsig_ctx.sign(signature)
 
-        newdoc = parseString(etree.tostring(elem, encoding='unicode').encode('utf-8'))
+        newdoc = parseString(tostring(elem, encoding='unicode').encode('utf-8'))
 
         signature_nodes = newdoc.getElementsByTagName("Signature")
 
@@ -901,7 +935,7 @@ class OneLogin_Saml2_Utils(object):
 
     @staticmethod
     @return_false_on_exception
-    def validate_sign(xml, cert=None, fingerprint=None, fingerprintalg='sha1', validatecert=False, debug=False, xpath=None):
+    def validate_sign(xml, cert=None, fingerprint=None, fingerprintalg='sha1', validatecert=False, debug=False, xpath=None, multicerts=None):
         """
         Validates a signature (Message or Assertion).
 
@@ -925,6 +959,9 @@ class OneLogin_Saml2_Utils(object):
 
         :param xpath: The xpath of the signed element
         :type: string
+
+        :param multicerts: Multiple public certs
+        :type: list
 
         :param raise_exceptions: Whether to return false on failure or raise an exception
         :type raise_exceptions: Boolean
@@ -972,7 +1009,17 @@ class OneLogin_Saml2_Utils(object):
         if len(signature_nodes) == 1:
             signature_node = signature_nodes[0]
 
-            return OneLogin_Saml2_Utils.validate_node_sign(signature_node, elem, cert, fingerprint, fingerprintalg, validatecert, debug, raise_exceptions=True)
+            if not multicerts:
+                return OneLogin_Saml2_Utils.validate_node_sign(signature_node, elem, cert, fingerprint, fingerprintalg, validatecert, debug, raise_exceptions=True)
+            else:
+                # If multiple certs are provided, I may ignore cert and
+                # fingerprint provided by the method and just check the
+                # certs multicerts
+                fingerprint = fingerprintalg = None
+                for cert in multicerts:
+                    if OneLogin_Saml2_Utils.validate_node_sign(signature_node, elem, cert, fingerprint, fingerprintalg, validatecert, False, raise_exceptions=False):
+                        return True
+                raise OneLogin_Saml2_ValidationError('Signature validation failed. SAML Response rejected.')
         else:
             raise OneLogin_Saml2_ValidationError('Expected exactly one signature node; got {}.'.format(len(signature_nodes)), OneLogin_Saml2_ValidationError.WRONG_NUMBER_OF_SIGNATURES)
 
@@ -1087,10 +1134,12 @@ class OneLogin_Saml2_Utils(object):
             x509_certificate_nodes = OneLogin_Saml2_Utils.query(signature_node, '//ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate')
             if len(x509_certificate_nodes) > 0:
                 x509_certificate_node = x509_certificate_nodes[0]
-                x509_cert_value = x509_certificate_node.text
-                x509_fingerprint_value = OneLogin_Saml2_Utils.calculate_x509_fingerprint(x509_cert_value, fingerprintalg)
+                x509_cert_value = OneLogin_Saml2_Utils.element_text(x509_certificate_node)
+                x509_cert_value_formatted = OneLogin_Saml2_Utils.format_cert(x509_cert_value)
+                x509_fingerprint_value = OneLogin_Saml2_Utils.calculate_x509_fingerprint(x509_cert_value_formatted, fingerprintalg)
+
                 if fingerprint == x509_fingerprint_value:
-                    cert = OneLogin_Saml2_Utils.format_cert(x509_cert_value)
+                    cert = x509_cert_value_formatted
 
         # Check if Reference URI is empty
         # reference_elem = OneLogin_Saml2_Utils.query(signature_node, '//ds:Reference')

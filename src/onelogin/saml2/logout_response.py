@@ -40,10 +40,12 @@ class OneLogin_Saml2_Logout_Response(object):
         """
         self.__settings = settings
         self.__error = None
+        self.id = None
 
         if response is not None:
             self.__logout_response = OneLogin_Saml2_Utils.decode_base64_and_inflate(response)
             self.document = parseString(self.__logout_response)
+            self.id = self.document.documentElement.getAttribute('ID')
 
     def get_issuer(self):
         """
@@ -54,7 +56,7 @@ class OneLogin_Saml2_Logout_Response(object):
         issuer = None
         issuer_nodes = self.__query('/samlp:LogoutResponse/saml:Issuer')
         if len(issuer_nodes) == 1:
-            issuer = issuer_nodes[0].text
+            issuer = OneLogin_Saml2_Utils.element_text(issuer_nodes[0])
         return issuer
 
     def get_status(self):
@@ -146,18 +148,32 @@ class OneLogin_Saml2_Logout_Response(object):
                     signed_query = '%s&RelayState=%s' % (signed_query, OneLogin_Saml2_Utils.get_encoded_parameter(get_data, 'RelayState', lowercase_urlencoding=lowercase_urlencoding))
                 signed_query = '%s&SigAlg=%s' % (signed_query, OneLogin_Saml2_Utils.get_encoded_parameter(get_data, 'SigAlg', OneLogin_Saml2_Constants.RSA_SHA1, lowercase_urlencoding=lowercase_urlencoding))
 
-                if 'x509cert' not in idp_data or not idp_data['x509cert']:
+                exists_x509cert = 'x509cert' in idp_data and idp_data['x509cert']
+                exists_multix509sign = 'x509certMulti' in idp_data and \
+                    'signing' in idp_data['x509certMulti'] and \
+                    idp_data['x509certMulti']['signing']
+
+                if not (exists_x509cert or exists_multix509sign):
                     raise OneLogin_Saml2_Error(
                         'In order to validate the sign on the Logout Response, the x509cert of the IdP is required',
                         OneLogin_Saml2_Error.CERT_NOT_FOUND
                     )
-                cert = idp_data['x509cert']
-
-                if not OneLogin_Saml2_Utils.validate_binary_sign(signed_query, b64decode(get_data['Signature']), cert, sign_alg):
+                if exists_multix509sign:
+                    for cert in idp_data['x509certMulti']['signing']:
+                        if OneLogin_Saml2_Utils.validate_binary_sign(signed_query, b64decode(get_data['Signature']), cert, sign_alg):
+                            return True
                     raise OneLogin_Saml2_ValidationError(
                         'Signature validation failed. Logout Response rejected',
                         OneLogin_Saml2_ValidationError.INVALID_SIGNATURE
                     )
+                else:
+                    cert = idp_data['x509cert']
+
+                    if not OneLogin_Saml2_Utils.validate_binary_sign(signed_query, b64decode(get_data['Signature']), cert, sign_alg):
+                        raise OneLogin_Saml2_ValidationError(
+                            'Signature validation failed. Logout Response rejected',
+                            OneLogin_Saml2_ValidationError.INVALID_SIGNATURE
+                        )
 
             return True
         # pylint: disable=R0801

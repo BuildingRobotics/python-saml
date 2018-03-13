@@ -22,12 +22,10 @@ from onelogin.saml2.errors import OneLogin_Saml2_ValidationError
 
 class OneLogin_Saml2_Response_Test(unittest.TestCase):
     data_path = join(dirname(dirname(dirname(dirname(__file__)))), 'data')
+    settings_path = join(dirname(dirname(dirname(dirname(__file__)))), 'settings')
 
-    def loadSettingsJSON(self, filename=None):
-        if filename:
-            filename = join(dirname(dirname(dirname(dirname(__file__)))), 'settings', filename)
-        else:
-            filename = join(dirname(dirname(dirname(dirname(__file__)))), 'settings', 'settings1.json')
+    def loadSettingsJSON(self, name='settings1.json'):
+        filename = join(self.settings_path, name)
         if exists(filename):
             stream = open(filename, 'r')
             settings = json.load(stream)
@@ -84,7 +82,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         Tests the get_nameid method of the OneLogin_Saml2_Response
         """
         json_settings = self.loadSettingsJSON()
-
+        json_settings['strict'] = False
         settings = OneLogin_Saml2_Settings(json_settings)
         xml = self.file_contents(join(self.data_path, 'responses', 'response1.xml.base64'))
         response = OneLogin_Saml2_Response(settings, xml)
@@ -98,52 +96,204 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         response_3 = OneLogin_Saml2_Response(settings, xml_3)
         self.assertEqual('_68392312d490db6d355555cfbbd8ec95d746516f60', response_3.get_nameid())
 
-        xml_4 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_nameid.xml.base64'))
-        response_4 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the assertion of the Response'):
-            response_4.get_nameid()
-
+        json_settings['strict'] = True
         json_settings['security']['wantNameId'] = True
         settings = OneLogin_Saml2_Settings(json_settings)
 
-        response_5 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the assertion of the Response'):
-            response_5.get_nameid()
+        xml_4 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_nameid.xml.base64'))
+        response_4 = OneLogin_Saml2_Response(settings, xml_4)
+        with self.assertRaisesRegexp(Exception, 'NameID not found in the assertion of the Response'):
+            response_4.get_nameid()
 
         json_settings['security']['wantNameId'] = False
         settings = OneLogin_Saml2_Settings(json_settings)
+        response_5 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_5.get_nameid())
 
+        json_settings['strict'] = False
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
         response_6 = OneLogin_Saml2_Response(settings, xml_4)
-        nameid_6 = response_6.get_nameid()
-        self.assertIsNone(nameid_6)
+        self.assertIsNone(response_6.get_nameid())
+
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_7 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_7.get_nameid())
 
         del json_settings['security']['wantNameId']
         settings = OneLogin_Saml2_Settings(json_settings)
+        response_8 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_8.get_nameid())
 
-        response_7 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the assertion of the Response'):
-            response_7.get_nameid()
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_9 = OneLogin_Saml2_Response(settings, xml_4)
+        with self.assertRaisesRegexp(Exception, 'NameID not found in the assertion of the Response'):
+            response_9.get_nameid()
+
+        json_settings['strict'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
+        response_10 = OneLogin_Saml2_Response(settings, xml_5)
+        self.assertEqual('test@example.com', response_10.get_nameid())
 
         json_settings['strict'] = True
         settings = OneLogin_Saml2_Settings(json_settings)
 
         xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
-        response_8 = OneLogin_Saml2_Response(settings, xml_5)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
-            response_8.get_nameid()
+        response_11 = OneLogin_Saml2_Response(settings, xml_5)
+        with self.assertRaisesRegexp(Exception, 'The SPNameQualifier value mistmatch the SP entityID value.'):
+            response_11.get_nameid()
+
+        json_settings['strict'] = True
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
 
         xml_6 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'empty_nameid.xml.base64'))
-        response_9 = OneLogin_Saml2_Response(settings, xml_6)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'An empty NameID value found'):
-            response_9.get_nameid()
+        response_12 = OneLogin_Saml2_Response(settings, xml_6)
+        with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
+            response_12.get_nameid()
+
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_13 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertIsNone(response_13.get_nameid())
+
+        json_settings['strict'] = False
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_14 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertIsNone(response_14.get_nameid())
+
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_15 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertIsNone(response_15.get_nameid())
+
+        del json_settings['security']['wantNameId']
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_16 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertIsNone(response_16.get_nameid())
+
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_17 = OneLogin_Saml2_Response(settings, xml_6)
+        with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
+            response_17.get_nameid()
+
+    def testReturnNameIdFormat(self):
+        """
+        Tests the get_nameid_format method of the OneLogin_Saml2_Response
+        """
+        json_settings = self.loadSettingsJSON()
+        json_settings['strict'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        xml = self.file_contents(join(self.data_path, 'responses', 'response1.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', response.get_nameid_format())
+
+        xml_2 = self.file_contents(join(self.data_path, 'responses', 'response_encrypted_nameid.xml.base64'))
+        response_2 = OneLogin_Saml2_Response(settings, xml_2)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified', response_2.get_nameid_format())
+
+        xml_3 = self.file_contents(join(self.data_path, 'responses', 'valid_encrypted_assertion.xml.base64'))
+        response_3 = OneLogin_Saml2_Response(settings, xml_3)
+        self.assertEqual('urn:oasis:names:tc:SAML:2.0:nameid-format:transient', response_3.get_nameid_format())
+
+        json_settings['strict'] = True
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+
+        xml_4 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_nameid.xml.base64'))
+        response_4 = OneLogin_Saml2_Response(settings, xml_4)
+        with self.assertRaisesRegexp(Exception, 'NameID not found in the assertion of the Response'):
+            response_4.get_nameid_format()
+
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_5 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_5.get_nameid_format())
+
+        json_settings['strict'] = False
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_6 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_6.get_nameid_format())
+
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_7 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_7.get_nameid_format())
+
+        del json_settings['security']['wantNameId']
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_8 = OneLogin_Saml2_Response(settings, xml_4)
+        self.assertIsNone(response_8.get_nameid_format())
+
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_9 = OneLogin_Saml2_Response(settings, xml_4)
+        with self.assertRaisesRegexp(Exception, 'NameID not found in the assertion of the Response'):
+            response_9.get_nameid_format()
+
+        json_settings['strict'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
+        response_10 = OneLogin_Saml2_Response(settings, xml_5)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', response_10.get_nameid_format())
+
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+
+        xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
+        response_11 = OneLogin_Saml2_Response(settings, xml_5)
+        with self.assertRaisesRegexp(Exception, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
+            response_11.get_nameid_format()
+
+        json_settings['strict'] = True
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+
+        xml_6 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'empty_nameid.xml.base64'))
+        response_12 = OneLogin_Saml2_Response(settings, xml_6)
+        with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
+            response_12.get_nameid_format()
+
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_13 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', response_13.get_nameid_format())
+
+        json_settings['strict'] = False
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_14 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', response_14.get_nameid_format())
+
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_15 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', response_15.get_nameid_format())
+
+        del json_settings['security']['wantNameId']
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_16 = OneLogin_Saml2_Response(settings, xml_6)
+        self.assertEqual('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', response_16.get_nameid_format())
+
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_17 = OneLogin_Saml2_Response(settings, xml_6)
+        with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
+            response_17.get_nameid_format()
 
     def testGetNameIdData(self):
         """
         Tests the get_nameid_data method of the OneLogin_Saml2_Response
         """
         json_settings = self.loadSettingsJSON()
-
-        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+        json_settings['strict'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
         xml = self.file_contents(join(self.data_path, 'responses', 'response1.xml.base64'))
         response = OneLogin_Saml2_Response(settings, xml)
         expected_nameid_data = {
@@ -173,45 +323,110 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         nameid_data_3 = response_3.get_nameid_data()
         self.assertEqual(expected_nameid_data_3, nameid_data_3)
 
-        xml_4 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_nameid.xml.base64'))
-        response_4 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the assertion of the Response'):
-            response_4.get_nameid_data()
-
+        json_settings['strict'] = True
         json_settings['security']['wantNameId'] = True
         settings = OneLogin_Saml2_Settings(json_settings)
 
-        response_5 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the assertion of the Response'):
-            response_5.get_nameid_data()
+        xml_4 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_nameid.xml.base64'))
+        response_4 = OneLogin_Saml2_Response(settings, xml_4)
+        with self.assertRaisesRegexp(Exception, 'NameID not found in the assertion of the Response'):
+            response_4.get_nameid_data()
 
         json_settings['security']['wantNameId'] = False
         settings = OneLogin_Saml2_Settings(json_settings)
+        response_5 = OneLogin_Saml2_Response(settings, xml_4)
+        nameid_data_5 = response_5.get_nameid_data()
+        self.assertEqual({}, nameid_data_5)
 
+        json_settings['strict'] = False
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
         response_6 = OneLogin_Saml2_Response(settings, xml_4)
         nameid_data_6 = response_6.get_nameid_data()
         self.assertEqual({}, nameid_data_6)
 
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_7 = OneLogin_Saml2_Response(settings, xml_4)
+        nameid_data_7 = response_7.get_nameid_data()
+        self.assertEqual({}, nameid_data_7)
+
         del json_settings['security']['wantNameId']
         settings = OneLogin_Saml2_Settings(json_settings)
+        response_8 = OneLogin_Saml2_Response(settings, xml_4)
+        nameid_data_8 = response_8.get_nameid_data()
+        self.assertEqual({}, nameid_data_8)
 
-        response_7 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'NameID not found in the assertion of the Response'):
-            response_7.get_nameid_data()
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_9 = OneLogin_Saml2_Response(settings, xml_4)
+        with self.assertRaisesRegexp(Exception, 'NameID not found in the assertion of the Response'):
+            response_9.get_nameid_data()
+
+        expected_nameid_data_4 = {
+            'Format': 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+            'SPNameQualifier': 'wrong-sp-entityid',
+            'Value': 'test@example.com'
+        }
+        json_settings['strict'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
+        response_10 = OneLogin_Saml2_Response(settings, xml_5)
+        nameid_data_10 = response_10.get_nameid_data()
+        self.assertEqual(expected_nameid_data_4, nameid_data_10)
 
         json_settings['strict'] = True
         settings = OneLogin_Saml2_Settings(json_settings)
 
         xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
-        response_8 = OneLogin_Saml2_Response(settings, xml_5)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
-            response_8.get_nameid_data()
-            self.assertTrue(False)
+        response_11 = OneLogin_Saml2_Response(settings, xml_5)
+        with self.assertRaisesRegexp(Exception, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
+            response_11.get_nameid_data()
 
+        expected_nameid_data_5 = {
+            'Value': None,
+            'Format': 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+        }
+
+        json_settings['strict'] = True
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+ 
         xml_6 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'empty_nameid.xml.base64'))
-        response_9 = OneLogin_Saml2_Response(settings, xml_6)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'An empty NameID value found'):
-            response_9.get_nameid_data()
+        response_12 = OneLogin_Saml2_Response(settings, xml_6)
+        with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
+            response_12.get_nameid_data()
+
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_13 = OneLogin_Saml2_Response(settings, xml_6)
+        nameid_data_13 = response_13.get_nameid_data()
+        nameid_data_13 = self.assertEqual(expected_nameid_data_5, nameid_data_13)
+
+        json_settings['strict'] = False
+        json_settings['security']['wantNameId'] = False
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_14 = OneLogin_Saml2_Response(settings, xml_6)
+        nameid_data_14 = response_14.get_nameid_data()
+        self.assertEqual(expected_nameid_data_5, nameid_data_14)
+
+        json_settings['security']['wantNameId'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_15 = OneLogin_Saml2_Response(settings, xml_6)
+        nameid_data_15 = response_15.get_nameid_data()
+        self.assertEqual(expected_nameid_data_5, nameid_data_15)
+
+        del json_settings['security']['wantNameId']
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_16 = OneLogin_Saml2_Response(settings, xml_6)
+        nameid_data_16 = response_16.get_nameid_data()
+        self.assertEqual(expected_nameid_data_5, nameid_data_16)
+
+        json_settings['strict'] = True
+        settings = OneLogin_Saml2_Settings(json_settings)
+        response_17 = OneLogin_Saml2_Response(settings, xml_6)
+        with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
+            response_17.get_nameid_data()
 
     def testCheckStatus(self):
         """
@@ -344,8 +559,8 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
 
         xml_4 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_issuer_response.xml.base64'))
         response_4 = OneLogin_Saml2_Response(settings, xml_4)
-        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'Issuer of the Response not found or multiple.'):
-            response_4.get_issuers()
+        response_4.get_issuers()
+        self.assertEqual(['https://pitbulk.no-ip.org/simplesaml/saml2/idp/metadata.php'], response_4.get_issuers())
 
         xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'no_issuer_assertion.xml.base64'))
         response_5 = OneLogin_Saml2_Response(settings, xml_5)
@@ -432,6 +647,19 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         response = OneLogin_Saml2_Response(settings, xml)
         self.assertFalse(response.is_valid(self.get_request_data()))
         self.assertEqual('test@onelogin.com', response.get_nameid())
+
+    def testNodeTextAttack(self):
+        """
+        Tests the get_nameid and get_attributes methods of the OneLogin_Saml2_Response
+        Test that the node text with comment attack (VU#475445) is not allowed
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+        xml = self.file_contents(join(self.data_path, 'responses', 'response_node_text_attack.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        nameid = response.get_nameid()
+        attributes = response.get_attributes()
+        self.assertEqual("smith", attributes.get('surname')[0])
+        self.assertEqual('support@onelogin.com', nameid)
 
     def testGetSessionNotOnOrAfter(self):
         """
@@ -958,6 +1186,54 @@ bP0z0zvDEQnnt/VUWFEBLSJq4Z4Nre8LFmS2
         response.is_valid(request_data, valid_request_id)
         self.assertEqual('No Signature found. SAML Response rejected', response.get_error())
 
+    def testRejectUnsolicitedResponsesWithInResponseTo(self):
+        settings_info = self.loadSettingsJSON()
+        settings_info['strict'] = True
+        settings_info['security']['rejectUnsolicitedResponsesWithInResponseTo'] = False
+        settings = OneLogin_Saml2_Settings(settings_info)
+        request_data = {
+            'http_host': 'stuff.com',
+            'script_name': 'endpoints/endpoints/acs.php'
+        }
+
+        xml = self.file_contents(join(self.data_path, 'responses', 'unsigned_response.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        response.is_valid(request_data)
+        self.assertEqual('No Signature found. SAML Response rejected', response.get_error())
+
+        settings_info['security']['rejectUnsolicitedResponsesWithInResponseTo'] = True
+        settings = OneLogin_Saml2_Settings(settings_info)
+        response = OneLogin_Saml2_Response(settings, xml)
+        response.is_valid(request_data)
+        self.assertEqual('The Response has an InResponseTo attribute: _57bcbf70-7b1f-012e-c821-782bcb13bb38 while no InResponseTo was expected', response.get_error())
+
+        settings_info['idp']['entityId'] = 'https://pitbulk.no-ip.org/simplesaml/saml2/idp/metadata.php'
+        settings_info['sp']['entityId'] = 'https://pitbulk.no-ip.org/newonelogin/demo1/metadata.php'
+        request_data = {
+            'https': 'on',
+            'http_host': 'pitbulk.no-ip.org',
+            'script_name': 'newonelogin/demo1/index.php?acs'
+        }
+        not_on_or_after = datetime.strptime('2014-02-19T09:37:01Z', '%Y-%m-%dT%H:%M:%SZ')
+        not_on_or_after -= timedelta(seconds=150)
+
+        # InResponseTo on the SubjectConfirmation only
+        xml = self.file_contents(join(self.data_path, 'responses', 'valid_response_without_inresponseto.xml.base64'))
+        settings_info['security']['rejectUnsolicitedResponsesWithInResponseTo'] = False
+        settings = OneLogin_Saml2_Settings(settings_info)
+        response = OneLogin_Saml2_Response(settings, xml)
+
+        with freeze_time(not_on_or_after):
+            self.assertTrue(response.is_valid(request_data))
+
+        settings_info['security']['rejectUnsolicitedResponsesWithInResponseTo'] = True
+        settings = OneLogin_Saml2_Settings(settings_info)
+        response = OneLogin_Saml2_Response(settings, xml)
+
+        with freeze_time(not_on_or_after):
+            self.assertFalse(response.is_valid(request_data))
+            self.assertEquals("A valid SubjectConfirmation was not found on this Response", response.get_error())
+
     def testIsInValidSignIssues(self):
         """
         Tests the is_valid method of the OneLogin_Saml2_Response class
@@ -1154,7 +1430,7 @@ bP0z0zvDEQnnt/VUWFEBLSJq4Z4Nre8LFmS2
         self.assertTrue(response_2.is_valid(self.get_request_data()))
 
         settings_info_3 = self.loadSettingsJSON('settings2.json')
-        idp_cert = settings_info_3['idp']['x509cert']
+        idp_cert = OneLogin_Saml2_Utils.format_cert(settings_info_3['idp']['x509cert'])
         settings_info_3['idp']['certFingerprint'] = OneLogin_Saml2_Utils.calculate_x509_fingerprint(idp_cert)
         settings_info_3['idp']['x509cert'] = ''
         settings_3 = OneLogin_Saml2_Settings(settings_info_3)
@@ -1296,6 +1572,16 @@ bP0z0zvDEQnnt/VUWFEBLSJq4Z4Nre8LFmS2
         # Modified message
         self.assertFalse(response_9.is_valid(self.get_request_data()))
 
+    def testIsValidSignUsingX509certMulti(self):
+        """
+        Tests the is_valid method of the OneLogin_Saml2_Response
+        Case Using x509certMulti
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON('settings8.json'))
+        xml = self.file_contents(join(self.data_path, 'responses', 'signed_message_response.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        self.assertTrue(response.is_valid(self.get_request_data()))
+
     def testIsValidSignWithEmptyReferenceURI(self):
         settings_info = self.loadSettingsJSON()
         del settings_info['idp']['x509cert']
@@ -1331,6 +1617,65 @@ bP0z0zvDEQnnt/VUWFEBLSJq4Z4Nre8LFmS2
                 'http_host': 'pitbulk.no-ip.org',
                 'script_name': 'newonelogin/demo1/index.php?acs'
             }))
+
+    def testStatusCheckBeforeAssertionCheck(self):
+        """
+        Tests the status of a response is checked before the assertion count. As failed statuses will have no assertions
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+        xml = self.file_contents(join(self.data_path, 'responses', 'invalids', 'status_code_responder.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        with self.assertRaisesRegexp(OneLogin_Saml2_ValidationError, 'The status code of the Response was not Success, was Responder'):
+            response.is_valid(self.get_request_data(), raise_exceptions=True)
+
+    def testGetId(self):
+        """
+        Tests that we can retrieve the ID of the Response
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+        xml = self.file_contents(join(self.data_path, 'responses', 'signed_message_response.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        self.assertEqual(response.get_id(), 'pfxc3d2b542-0f7e-8767-8e87-5b0dc6913375')
+
+    def testGetAssertionId(self):
+        """
+        Tests that we can retrieve the ID of the Assertion
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+        xml = self.file_contents(join(self.data_path, 'responses', 'signed_message_response.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, xml)
+        self.assertEqual(response.get_assertion_id(), '_cccd6024116641fe48e0ae2c51220d02755f96c98d')
+
+    def testGetAssertionNotOnOrAfter(self):
+        """
+        Tests that we can retrieve the NotOnOrAfter value of
+        the valid SubjectConfirmationData
+        """
+        settings_data = self.loadSettingsJSON()
+        request_data = self.get_request_data()
+        settings = OneLogin_Saml2_Settings(settings_data)
+        message = self.file_contents(join(self.data_path, 'responses', 'valid_response.xml.base64'))
+        response = OneLogin_Saml2_Response(settings, message)
+        self.assertIsNone(response.get_assertion_not_on_or_after())
+
+        response.is_valid(request_data)
+        self.assertIsNone(response.get_error())
+        self.assertIsNone(response.get_assertion_not_on_or_after())
+
+        settings_data['strict'] = True
+        settings = OneLogin_Saml2_Settings(settings_data)
+        response = OneLogin_Saml2_Response(settings, message)
+
+        response.is_valid(request_data)
+        self.assertNotEqual(response.get_error(), None)
+        self.assertIsNone(response.get_assertion_not_on_or_after())
+
+        request_data['https'] = 'on'
+        request_data['http_host'] = 'pitbulk.no-ip.org'
+        request_data['script_name'] = '/newonelogin/demo1/index.php?acs'
+        response.is_valid(request_data)
+        self.assertIsNone(response.get_error())
+        self.assertEqual(response.get_assertion_not_on_or_after(), 2671081021)
 
 
 if __name__ == '__main__':

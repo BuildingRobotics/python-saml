@@ -5,6 +5,7 @@
 
 from base64 import b64decode
 import json
+from defusedxml.lxml import fromstring
 from lxml import etree
 from os.path import dirname, join, exists
 import unittest
@@ -606,6 +607,17 @@ class OneLogin_Saml2_Utils_Test(unittest.TestCase):
         expected_name_id_enc = '<saml:EncryptedID><xenc:EncryptedData Type="http://www.w3.org/2001/04/xmlenc#Element" xmlns:dsig="http://www.w3.org/2000/09/xmldsig#" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"><xenc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/><dsig:KeyInfo xmlns:dsig="http://www.w3.org/2000/09/xmldsig#"><xenc:EncryptedKey><xenc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"/><xenc:CipherData><xenc:CipherValue>'
         self.assertIn(expected_name_id_enc, name_id_enc)
 
+    def testGenerateNameIdWithoutFormat(self):
+        """
+        Tests the generateNameId method of the OneLogin_Saml2_Utils
+        """
+        name_id_value = 'ONELOGIN_ce998811003f4e60f8b07a311dc641621379cfde'
+        name_id_format = None
+
+        name_id = OneLogin_Saml2_Utils.generate_name_id(name_id_value, None, name_id_format)
+        expected_name_id = '<saml:NameID>ONELOGIN_ce998811003f4e60f8b07a311dc641621379cfde</saml:NameID>'
+        self.assertEqual(name_id, expected_name_id)
+
     def testGenerateNameIdWithoutSPNameQualifier(self):
         """
         Tests the generateNameId method of the OneLogin_Saml2_Utils
@@ -655,11 +667,11 @@ class OneLogin_Saml2_Utils_Test(unittest.TestCase):
         OneLogin_Saml2_Utils.delete_local_session()
         self.assertEqual(1, local_session_test)
 
-        dscb = lambda: self.session_cear()
+        dscb = lambda: self.session_clear()
         OneLogin_Saml2_Utils.delete_local_session(dscb)
         self.assertEqual(0, local_session_test)
 
-    def session_cear(self):
+    def session_clear(self):
         """
         Auxiliar method to test the delete_local_session method of the OneLogin_Saml2_Utils
         """
@@ -718,15 +730,28 @@ class OneLogin_Saml2_Utils_Test(unittest.TestCase):
         key2 = f.read()
         f.close()
 
-        with self.assertRaisesRegexp(Exception, "('failed to decrypt', -1)"):
-            OneLogin_Saml2_Utils.decrypt_element(encrypted_data, key2)
+        # sp.key and sp2.key are equivalent we should be able to decrypt the nameID again
+        decrypted_nameid = OneLogin_Saml2_Utils.decrypt_element(encrypted_data, key2)
+        self.assertIn('{%s}NameID' % (OneLogin_Saml2_Constants.NS_SAML), decrypted_nameid.tag)
+        self.assertEqual('457bdb600de717891c77647b0806ce59c089d5b8', decrypted_nameid.text)
 
         key_3_file_name = join(self.data_path, 'misc', 'sp3.key')
         f = open(key_3_file_name, 'r')
         key3 = f.read()
         f.close()
+
+        # sp.key and sp3.key are equivalent we should be able to decrypt the nameID again
+        decrypted_nameid = OneLogin_Saml2_Utils.decrypt_element(encrypted_data, key3)
+        self.assertIn('{%s}NameID' % (OneLogin_Saml2_Constants.NS_SAML), decrypted_nameid.tag)
+        self.assertEqual('457bdb600de717891c77647b0806ce59c089d5b8', decrypted_nameid.text)
+
+        key_4_file_name = join(self.data_path, 'misc', 'sp4.key')
+        f = open(key_4_file_name, 'r')
+        key4 = f.read()
+        f.close()
+
         with self.assertRaisesRegexp(Exception, "('failed to decrypt', -1)"):
-            OneLogin_Saml2_Utils.decrypt_element(encrypted_data, key3)
+            OneLogin_Saml2_Utils.decrypt_element(encrypted_data, key4)
 
         xml_nameid_enc_2 = b64decode(self.file_contents(join(self.data_path, 'responses', 'invalids', 'encrypted_nameID_without_EncMethod.xml.base64')))
         dom_nameid_enc_2 = parseString(xml_nameid_enc_2)
@@ -744,6 +769,33 @@ class OneLogin_Saml2_Utils_Test(unittest.TestCase):
         with self.assertRaisesRegexp(Exception, "('failed to decrypt', -1)"):
             OneLogin_Saml2_Utils.decrypt_element(encrypted_data_3, key)
 
+    def testDecryptElementInplace(self):
+        """
+        Tests the decrypt_element method of the OneLogin_Saml2_Utils with inplace=True
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+
+        key = settings.get_sp_key()
+
+        xml_nameid_enc = b64decode(self.file_contents(join(self.data_path, 'responses', 'response_encrypted_nameid.xml.base64')))
+        dom = fromstring(xml_nameid_enc)
+        encrypted_node = dom.xpath('//saml:EncryptedID/xenc:EncryptedData', namespaces=OneLogin_Saml2_Constants.NSMAP)[0]
+
+        # can be decrypted twice when copy the node first
+        for _ in range(2):
+            decrypted_nameid = OneLogin_Saml2_Utils.decrypt_element(encrypted_node, key, inplace=False)
+            self.assertIn('NameID', decrypted_nameid.tag)
+            self.assertEqual('2de11defd199f8d5bb63f9b7deb265ba5c675c10', decrypted_nameid.text)
+
+        # can only be decrypted once in place
+        decrypted_nameid = OneLogin_Saml2_Utils.decrypt_element(encrypted_node, key, inplace=True)
+        self.assertIn('NameID', decrypted_nameid.tag)
+        self.assertEqual('2de11defd199f8d5bb63f9b7deb265ba5c675c10', decrypted_nameid.text)
+
+        # can't be decrypted twice since it has been dcrypted inplace
+        with self.assertRaisesRegexp(Exception, "('failed to decrypt', -1)"):
+            OneLogin_Saml2_Utils.decrypt_element(encrypted_node, key, inplace=True)
+
     def testAddSign(self):
         """
         Tests the add_sign method of the OneLogin_Saml2_Utils
@@ -758,57 +810,85 @@ class OneLogin_Saml2_Utils_Test(unittest.TestCase):
 
         res = parseString(xml_authn_signed)
         ds_signature = res.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature.tagName)
+        self.assertEqual('ds:Signature', ds_signature.tagName)
 
         xml_authn_dom = parseString(xml_authn)
         xml_authn_signed_2 = OneLogin_Saml2_Utils.add_sign(xml_authn_dom, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_authn_signed_2)
         res_2 = parseString(xml_authn_signed_2)
         ds_signature_2 = res_2.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature_2.tagName)
+        self.assertEqual('ds:Signature', ds_signature_2.tagName)
 
         xml_authn_signed_3 = OneLogin_Saml2_Utils.add_sign(xml_authn_dom.firstChild, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_authn_signed_3)
         res_3 = parseString(xml_authn_signed_3)
         ds_signature_3 = res_3.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature_3.tagName)
+        self.assertEqual('ds:Signature', ds_signature_3.tagName)
 
         xml_authn_etree = etree.fromstring(xml_authn)
         xml_authn_signed_4 = OneLogin_Saml2_Utils.add_sign(xml_authn_etree, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_authn_signed_4)
         res_4 = parseString(xml_authn_signed_4)
         ds_signature_4 = res_4.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature_4.tagName)
+        self.assertEqual('ds:Signature', ds_signature_4.tagName)
 
         xml_authn_signed_5 = OneLogin_Saml2_Utils.add_sign(xml_authn_etree, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_authn_signed_5)
         res_5 = parseString(xml_authn_signed_5)
         ds_signature_5 = res_5.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature_5.tagName)
+        self.assertEqual('ds:Signature', ds_signature_5.tagName)
 
         xml_logout_req = b64decode(self.file_contents(join(self.data_path, 'logout_requests', 'logout_request.xml.base64')))
         xml_logout_req_signed = OneLogin_Saml2_Utils.add_sign(xml_logout_req, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_logout_req_signed)
         res_6 = parseString(xml_logout_req_signed)
         ds_signature_6 = res_6.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature_6.tagName)
+        self.assertEqual('ds:Signature', ds_signature_6.tagName)
 
         xml_logout_res = b64decode(self.file_contents(join(self.data_path, 'logout_responses', 'logout_response.xml.base64')))
         xml_logout_res_signed = OneLogin_Saml2_Utils.add_sign(xml_logout_res, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_logout_res_signed)
         res_7 = parseString(xml_logout_res_signed)
         ds_signature_7 = res_7.firstChild.firstChild.nextSibling.nextSibling
-        self.assertIn('ds:Signature', ds_signature_7.tagName)
+        self.assertEqual('ds:Signature', ds_signature_7.tagName)
 
         xml_metadata = self.file_contents(join(self.data_path, 'metadata', 'metadata_settings1.xml'))
         xml_metadata_signed = OneLogin_Saml2_Utils.add_sign(xml_metadata, key, cert)
         self.assertIn('<ds:SignatureValue>', xml_metadata_signed)
         res_8 = parseString(xml_metadata_signed)
-        ds_signature_8 = res_8.firstChild.firstChild.nextSibling.firstChild.nextSibling
-        self.assertIn('ds:Signature', ds_signature_8.tagName)
+        ds_signature_8 = res_8.firstChild.firstChild.nextSibling
+        self.assertEqual('ds:Signature', ds_signature_8.tagName)
 
         with self.assertRaisesRegexp(Exception, 'Error parsing xml string'):
             OneLogin_Saml2_Utils.add_sign(1, key, cert)
+
+    def testAddSignCheckAlg(self):
+        """
+        Tests the add_sign method of the OneLogin_Saml2_Utils
+        Case: Review signature & digest algorithm
+        """
+        settings = OneLogin_Saml2_Settings(self.loadSettingsJSON())
+        key = settings.get_sp_key()
+        cert = settings.get_sp_cert()
+
+        xml_authn = b64decode(self.file_contents(join(self.data_path, 'requests', 'authn_request.xml.base64')))
+        xml_authn_signed = OneLogin_Saml2_Utils.add_sign(xml_authn, key, cert)
+        self.assertIn('<ds:SignatureValue>', xml_authn_signed)
+        self.assertIn('<ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>', xml_authn_signed)
+        self.assertIn('<ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>', xml_authn_signed)
+        self.assertIn('<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>', xml_authn_signed)
+
+        xml_authn_signed_2 = OneLogin_Saml2_Utils.add_sign(xml_authn, key, cert, False, OneLogin_Saml2_Constants.RSA_SHA256, OneLogin_Saml2_Constants.SHA384)
+        self.assertIn('<ds:SignatureValue>', xml_authn_signed_2)
+        self.assertIn('<ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>', xml_authn_signed_2)
+        self.assertIn('<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#sha384"/>', xml_authn_signed_2)
+        self.assertIn('<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>', xml_authn_signed_2)
+
+        xml_authn_signed_3 = OneLogin_Saml2_Utils.add_sign(xml_authn, key, cert, False, OneLogin_Saml2_Constants.RSA_SHA384, OneLogin_Saml2_Constants.SHA512)
+        self.assertIn('<ds:SignatureValue>', xml_authn_signed_3)
+        self.assertIn('<ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>', xml_authn_signed_3)
+        self.assertIn('<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"/>', xml_authn_signed_3)
+        self.assertIn('<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"/>', xml_authn_signed_3)
 
     def testValidateSign(self):
         """
