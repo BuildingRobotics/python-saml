@@ -143,7 +143,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
 
         xml_5 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'wrong_spnamequalifier.xml.base64'))
         response_11 = OneLogin_Saml2_Response(settings, xml_5)
-        with self.assertRaisesRegexp(Exception, 'The SPNameQualifier value mistmatch the SP entityID value.'):
+        with self.assertRaisesRegexp(Exception, 'The SPNameQualifier value wrong-sp-entityid mistmatch the SP entityID value http://stuff.com/endpoints/metadata.php'):
             response_11.get_nameid()
 
         json_settings['strict'] = True
