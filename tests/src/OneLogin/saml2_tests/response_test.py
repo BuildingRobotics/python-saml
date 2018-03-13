@@ -391,7 +391,7 @@ class OneLogin_Saml2_Response_Test(unittest.TestCase):
         json_settings['strict'] = True
         json_settings['security']['wantNameId'] = True
         settings = OneLogin_Saml2_Settings(json_settings)
- 
+
         xml_6 = self.file_contents(join(self.data_path, 'responses', 'invalids', 'empty_nameid.xml.base64'))
         response_12 = OneLogin_Saml2_Response(settings, xml_6)
         with self.assertRaisesRegexp(Exception, 'An empty NameID value found'):
